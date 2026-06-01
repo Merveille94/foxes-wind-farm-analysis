@@ -5,49 +5,60 @@ import glob
 import foxes
 import foxes.variables as FV
 import foxes.constants as FC
+from scipy.spatial.distance import cdist
+import os
+from pathlib import Path
 
-path_aoi = '/dss/work/wika1715/wind/turbine-info/area_of_interest/*csv'
-path_existing = '/dss/work/wika1715/wind/turbine-info/existing/*csv'
-path_planned = '/dss/work/wika1715/wind/turbine-info/planned_future/*csv'
+LEN = 0
+SCRIPT_DIR = Path(__file__).resolve().parent
+path_aoi = str(SCRIPT_DIR / "turbine-info/area_of_interest/*.csv")
+path_existing = str(SCRIPT_DIR / "turbine-info/existing/*.csv")
+path_planned = str(SCRIPT_DIR / "turbine-info/planned_future/*.csv")
 
+ALLOWED_DISTANCE = 50000 # in meters
+
+farms_fields = {
+    "aoi": glob.glob(path_aoi),
+    "existing": glob.glob(path_existing),
+    "planned":glob.glob(path_planned)
+    }
+
+turbines = {
+    "aoi": ["IEA15MW"],
+    "existing": ["NREL5MW"],
+    "planned":["IEA15MW"]
+}
+
+# Read all coordinates in the areas N-10.1/N-10.2 and concatenate them into a single 2D array
+aio_coords = pd.concat([pd.read_csv(file)[['x', 'y']] for file in farms_fields["aoi"]], ignore_index=True).values
+
+# intialize farms
 farm_all = foxes.WindFarm(name="farm_all")
 
-files_aoi = glob.glob(path_aoi)
-files_existing = glob.glob(path_existing)
-files_planned = glob.glob(path_planned)
 
-for file in files_aoi:
-    df_temp = pd.read_csv(file)
-
-    for turbine in range(len(df_temp)):
-        farm_all.add_turbine(foxes.Turbine(
-            xy=[df_temp['x'][turbine],df_temp['y'][turbine]],
-            name="aoi",
-            turbine_models=["IEA15MW"]
-        ))
-
-for file in files_existing:
-        df_temp = pd.read_csv(file)
-
-        for turbine in range(len(df_temp)):
-            farm_all.add_turbine(foxes.Turbine(
-                xy=[df_temp['x'][turbine], df_temp['y'][turbine]],
-                name="existing",
-                turbine_models=["NREL5MW"]
-            ))
-
-for file in files_planned:
-    df_temp = pd.read_csv(file)
-    
-    for turbine in range(len(df_temp)):
-        farm_all.add_turbine(foxes.Turbine(
-            xy=[df_temp['x'][turbine], df_temp['y'][turbine]],
-            name="planned",
-            turbine_models=["IEA15MW"]
-        ))
+for category, files in farms_fields.items():
+    for file in files:
+         print(f"processing file: {file}...")
+         df_temp = pd.read_csv(file)
+         
+         
+         if category != "aoi":
+            # Calculate the distance from each turbine in df_temp to the nearest turbine in aio_coords
+            distances = cdist(df_temp[['x', 'y']].values, aio_coords)
+            min_distance_to_aio = np.min(distances, axis=1)
+            df_temp = df_temp[min_distance_to_aio <= ALLOWED_DISTANCE]
+        
+         for index, row in df_temp.iterrows():
+                farm_all.add_turbine(foxes.Turbine(
+                    xy=[row['x'],row['y']],
+                    name=category,
+                    turbine_models=turbines[category]
+                ))
+         LEN += len(df_temp)
+#breakpoint()
 
 states = foxes.input.states.StatesTable(
-        data_source="reanalysis/reanalysis_2006.csv",
+        data_source=str(SCRIPT_DIR / "reanalysis/reanalysis_2006.csv"),
         output_vars=[FV.WS, FV.WD, FV.TI, FV.RHO],
         var2col={FV.WS: "WS100", FV.WD: "WD100"},
         fixed_vars={FV.RHO: 1.225, FV.TI: 0.05},
@@ -68,7 +79,7 @@ algo = foxes.algorithms.Downwind(
 
 engine = foxes.Engine.new(
     engine_type="process",
-    n_procs=128,
+    n_procs=4,
     chunk_size_states=73,
     verbosity=0,
 )
@@ -81,7 +92,7 @@ aoi_inds = [
 print(f"AOI turbines: {len(aoi_inds)}")
 
 
-assert len(farm_all.turbines) == 5143, "Error: Wrong Number of Turbines"
+assert len(farm_all.turbines) == LEN, "Error: Wrong Number of Turbines"
 assert len([t for t in farm_all.turbines if t.name=="aoi"]) == 166, "Error: Wrong Number of AOI TurbineError: Wrong Number of AOI Turbiness"
 
 print ("sanity checks okay")

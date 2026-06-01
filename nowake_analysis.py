@@ -111,6 +111,7 @@ def print_yield_summary(df: pd.DataFrame, farm_name: str = "Farm"):
     farm_yield    = turbine_yield.sum()               # [GWh/year]
     mean_power_MW = farm_yield * 1e3 / 8760           # [MW]  (GWh*1e3/h = MW)
 
+
     n_t = len(turbine_yield)
     print(f"  Number of turbines      : {n_t}")
     print(f"  Turbine yield (annual)  :")

@@ -113,9 +113,9 @@ if __name__ == "__main__":
     engine = foxes.Engine.new(
         engine_type="process",
         n_procs=8,
-        chunk_size_states=20,
+        chunk_size_states=50,
         chunk_size_points=500,
-        verbosity=0,
+        verbosity=1,
     )
 
     aoi_inds = [i for i, t in enumerate(farm_all.turbines) if t.name == "aoi"]
@@ -124,6 +124,7 @@ if __name__ == "__main__":
 
 
     assert len(farm_all.turbines) == LEN, "Error: Wrong Number of Turbines"
+    print(f"Total number of turbines in the combined farm: {len(farm_all.turbines)} (expected {LEN})")
     assert len([t for t in farm_all.turbines if t.name=="aoi"]) == 166, "Error: Wrong Number of AOI Turbines: (expected 166 = N-10.1 + N-10.2)"
 
     print ("sanity checks Okay")

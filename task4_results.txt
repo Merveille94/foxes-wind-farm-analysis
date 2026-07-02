@@ -1,0 +1,33 @@
+Excerpt from the slurm outputfiles from HPC computations:
+
+considering all 5143 turbines:
+
+AOI mean power (with wakes) : 1196.6 MW
+AOI mean power (ambient/no wake): 1514.9 MW
+AOI efficiency   : 78.99 %
+AOI annual yield (with wakes)   : 10482.11 GWh
+
+considering 2014 turbines within 50km of AOI:
+
+AOI mean power (with wakes) : 1208.1 MW
+AOI mean power (ambient/no wake): 1514.9 MW
+AOI efficiency   : 79.75 %
+AOI annual yield (with wakes)   : 10582.91 GWh
+
+
+
+Wake losses are 21.01 % considering all turbines vs. 20.25 % considering turbines within 50km.
+
+
+Simulating only the AOI gives the result for only the internal wake effects:
+
+Farm power        : 1300.7 MW
+Farm ambient power: 1514.9 MW
+Farm efficiency   : 85.86 %
+Annual farm yield : 11394.26 GWh
+
+This lets us conlcude that most wake losses actually stem from internal wake effects (14.14 %).
+External wake effects only contribute 21.01 % - 14.14 % = 6.87 % of the total wake losses.
+
+Here, considering turbines within 50km of teh AOI is sufficient since turbines further away 
+contributed less than 1 % of the wake losses while significantly increasing computational cost.

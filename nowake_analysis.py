@@ -23,6 +23,7 @@ Dependencies: numpy, pandas, matplotlib, seaborn
 
 import numpy as np
 import pandas as pd
+import xarray as xr
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 
@@ -134,6 +135,31 @@ def print_yield_summary(df: pd.DataFrame, farm_name: str = "Farm"):
 # TASK 6 — SPATIAL PATTERN OF PRODUCTION  (no-wake)
 # ============================================================================
 
+def prepare_results_nc(nc_file: str) -> pd.DataFrame:
+    
+    """
+    Load FOXES results from nc files, keep only AOI turbines,
+    and return a dataframe compatible with plotting helpers.
+    """
+
+    ds = xr.open_dataset(nc_file)
+
+    # Identify AOI turbines
+    aoi_mask = ds["tname"].str.contains("aoi", case=False)
+
+    # Select only those turbines
+    ds = ds.isel(turbine=aoi_mask)
+    
+    # Convert reduced dataset to dataframe
+    df = ds.to_dataframe().reset_index()
+    
+    # Same formatting as prepare_results_df
+    df["state"] = pd.to_datetime(df["state"])
+    df = df.set_index(["state", "turbine"])
+                                                                
+    return df
+
+
 def _compute_turbine_yield(df: pd.DataFrame) -> pd.DataFrame:
     """
     Aggregate per-turbine annual yield [GWh] and spatial position.
@@ -187,7 +213,7 @@ def plot_pattern_of_production(df: pd.DataFrame,
     plt.colorbar(sc, ax=ax, label="Annual yield [GWh]", pad=0.02)
     ax.set_xlabel("Easting [km]", fontsize=11)
     ax.set_ylabel("Northing [km]", fontsize=11)
-    ax.set_title(f"Pattern of Production (No Wake)\n{farm_name}", fontsize=13)
+    ax.set_title(f"Pattern of Production \n{farm_name}", fontsize=13)
     ax.set_aspect("equal")
     ax.grid(True, linestyle="--", alpha=0.4)
 
@@ -216,7 +242,7 @@ def plot_pattern_of_production_comparison(df1: pd.DataFrame,
     for ax in axes:
         ax.collections[0].set_clim(vmin, vmax)
 
-    fig.suptitle("Pattern of Production – No Wake Scenario (2006 ERA5)",
+    fig.suptitle("Pattern of Production (2006 ERA5)",
                  fontsize=14, y=1.01)
     plt.tight_layout()
     plt.show()
@@ -301,7 +327,7 @@ def plot_directional_yield_comparison(df1, df2,
                            n_sectors=n_sectors, ax=axes[0], color=C1)
     plot_directional_yield(df2, farm_name=names[1],
                            n_sectors=n_sectors, ax=axes[1], color=C2)
-    fig.suptitle("Energy Yield Contribution by Wind Direction Sector (No Wake)",
+    fig.suptitle("Energy Yield Contribution by Wind Direction Sector",
                  fontsize=13)
     plt.tight_layout()
     plt.show()
@@ -404,7 +430,7 @@ def plot_seasonality_comparison(df1, df2, names=("N-10.1", "N-10.2")):
                      ax_month=axes[0, 0], ax_season=axes[0, 1])
     plot_seasonality(df2, farm_name=names[1], color=C2,
                      ax_month=axes[1, 0], ax_season=axes[1, 1])
-    fig.suptitle("Seasonality Analysis – No Wake Scenario (2006 ERA5)",
+    fig.suptitle("Seasonality Analysis (2006 ERA5)",
                  fontsize=14, y=1.01)
     plt.tight_layout()
     plt.show()
@@ -479,7 +505,7 @@ def plot_diurnal_comparison(df1, df2, names=("N-10.1", "N-10.2")):
 
     ax.set_xlabel("Hour of day (UTC)", fontsize=10)
     ax.set_ylabel("Farm power [MW]", fontsize=10)
-    ax.set_title("Diurnal Variation – No Wake Scenario (2006 ERA5)", fontsize=12)
+    ax.set_title("Diurnal Variation (2006 ERA5)", fontsize=12)
     ax.set_xticks(range(0, 24, 2))
     ax.grid(linestyle="--", alpha=0.4)
     ax.legend(fontsize=10)
@@ -539,7 +565,7 @@ def plot_full_dashboard(df: pd.DataFrame,
     ax_pdc.grid(linestyle="--", alpha=0.4)
 
     fig.suptitle(
-        f"No-Wake Energy Analysis Dashboard — {farm_name} (2006 ERA5)",
+        f"Energy Analysis Dashboard — {farm_name} (2006 ERA5)",
         fontsize=16, y=1.01, fontweight="bold"
     )
     plt.show()

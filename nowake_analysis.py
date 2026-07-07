@@ -107,27 +107,34 @@ def print_yield_summary(df: pd.DataFrame, farm_name: str = "Farm"):
         df.groupby(level="turbine")
           .apply(lambda g: (g["P"] * g["weight"]).sum() * 8760 / 1e6)
     )
+    n_turbines = df.index.get_level_values("turbine").nunique()
+
+    farm_power_kw = df["P"].groupby(level="state").sum()
+    farm_power_mw = farm_power_kw / 1000
+
 
     farm_yield    = turbine_yield.sum()               # [GWh/year]
     mean_power_MW = farm_yield * 1e3 / 8760           # [MW]  (GWh*1e3/h = MW)
 
-
-    n_t = len(turbine_yield)
-    print(f"  Number of turbines      : {n_t}")
+    
+    print(f"  Number of turbines      : {n_turbines}")
     print(f"  Turbine yield (annual)  :")
     print(f"    Min  : {turbine_yield.min():.2f} GWh")
     print(f"    Max  : {turbine_yield.max():.2f} GWh")
     print(f"    Mean : {turbine_yield.mean():.2f} GWh")
     print(f"  Total farm yield/year   : {farm_yield:.2f} GWh")
     print(f"  Mean farm power         : {mean_power_MW:.2f} MW")
-
-    rated_power_MW  = 15.0 * n_t                      # IEA-15 MW × n turbines
+    
+    rated_power_MW  = 15.0 * n_turbines                      # IEA-15 MW × n turbines
     aep_theor       = rated_power_MW * 8760 / 1e3     # GWh if always at rated
     capacity_factor = farm_yield / aep_theor * 100
-    print(f"  Rated capacity          : {rated_power_MW:.0f} MW")
-    print(f"  Capacity factor         : {capacity_factor:.1f} %")
+    full_load_hours = farm_yield / (rated_power_MW / 1e3)
+
+    print(f"  Rated Farm Capacity          : {rated_power_MW:.0f} MW")
+    print(f"  Capacity Factor         : {capacity_factor:.1f} %")
+    print(f"  Full Load Hours         : {full_load_hours:.1f} ")
     print(f"{'='*60}\n")
-    return turbine_yield, farm_yield, mean_power_MW
+    return turbine_yield, farm_yield, mean_power_MW, full_load_hours
 
 
 # ============================================================================
@@ -151,17 +158,18 @@ def _compute_turbine_yield(df: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+ 
 def plot_pattern_of_production(df: pd.DataFrame,
                                farm_name: str = "Farm",
                                ax=None):
     """
     Spatial scatter plot of per-turbine total power output (Pattern of
     Production).  Marker colour encodes annual yield [GWh].
-
+ 
     In the no-wake case all turbines show nearly identical colours because
     every turbine sees the same undisturbed inflow.  The spatial contrast
     becomes apparent only in the wake scenario (Task 4/6).
-
+ 
     Parameters
     ----------
     df        : prepared results DataFrame (MultiIndex state/turbine)
@@ -169,14 +177,32 @@ def plot_pattern_of_production(df: pd.DataFrame,
     ax        : matplotlib Axes; a new figure is created when None
     """
     turbine_df = _compute_turbine_yield(df)
-
+ 
     standalone = ax is None
     if standalone:
         fig, ax = plt.subplots(figsize=(9, 8))
-
+ 
+    # -----------------------------------------------------------------------
+    # WHY THE Y-AXIS WAS "HUGE":
+    # Coordinates are UTM (metres), measured from the equator.  The German
+    # Bight sits ~6 050 000 m north of the equator, so dividing by 1 000 gives
+    # ~6 050 km — technically correct, but visually confusing.
+    #
+    # FIX: subtract the SW corner (minimum X, minimum Y) so that:
+    #   - the bottom-left turbine is at (0, 0)
+    #   - all axis values are ≥ 0
+    #   - axis range directly shows the farm's footprint in km
+    # The absolute UTM corner is annotated in small text for reference.
+    # -----------------------------------------------------------------------
+    x0_km = turbine_df["X"].min() / 1000   # SW corner easting  [km]
+    y0_km = turbine_df["Y"].min() / 1000   # SW corner northing [km]
+ 
+    x_rel = turbine_df["X"] / 1000 - x0_km   # local easting  from SW [km]
+    y_rel = turbine_df["Y"] / 1000 - y0_km   # local northing from SW [km]
+ 
     sc = ax.scatter(
-        turbine_df["X"] / 1000,   # m → km
-        turbine_df["Y"] / 1000,
+        x_rel,
+        y_rel,
         c=turbine_df["annual_GWh"],
         cmap="plasma",
         s=80,
@@ -185,16 +211,22 @@ def plot_pattern_of_production(df: pd.DataFrame,
         zorder=3
     )
     plt.colorbar(sc, ax=ax, label="Annual yield [GWh]", pad=0.02)
-    ax.set_xlabel("Easting [km]", fontsize=11)
-    ax.set_ylabel("Northing [km]", fontsize=11)
-    ax.set_title(f"Pattern of Production (No Wake)\n{farm_name}", fontsize=13)
+    ax.set_xlabel("Local Easting [km]", fontsize=11, fontweight="bold")
+    ax.set_ylabel("Local Northing [km]", fontsize=11, fontweight="bold")
+    ax.set_title(f"Pattern of Production (No Wake)\n{farm_name}", fontsize=13, fontweight="bold")
     ax.set_aspect("equal")
     ax.grid(True, linestyle="--", alpha=0.4)
-
+ 
+    # Annotate absolute UTM SW-corner so geospatial context is not lost
+    ax.text(0.02, 0.02,
+            f"SW corner: {x0_km:.1f} E / {y0_km:.1f} N (km, UTM 32N)",
+            transform=ax.transAxes, fontsize=7,
+            color="grey", va="bottom")
+ 
     if standalone:
         plt.tight_layout()
         plt.show()
-
+ 
     return turbine_df
 
 
@@ -217,7 +249,7 @@ def plot_pattern_of_production_comparison(df1: pd.DataFrame,
         ax.collections[0].set_clim(vmin, vmax)
 
     fig.suptitle("Pattern of Production – No Wake Scenario (2006 ERA5)",
-                 fontsize=14, y=1.01)
+                 fontsize=14, y=1.01, fontweight="bold")
     plt.tight_layout()
     plt.show()
 
@@ -280,8 +312,8 @@ def plot_directional_yield(df: pd.DataFrame,
 
     ax.set_xticks(range(n_sectors))
     ax.set_xticklabels(sector_labels, rotation=45, ha="right", fontsize=8)
-    ax.set_ylabel("Annual energy contribution [GWh]", fontsize=10)
-    ax.set_title(f"Energy Yield by Wind Direction Sector\n{farm_name}", fontsize=12)
+    ax.set_ylabel("Annual energy contribution [GWh]", fontsize=10, fontweight="bold")
+    ax.set_title(f"Energy Yield by Wind Direction Sector\n{farm_name}", fontsize=12, fontweight="bold")
     ax.grid(axis="y", linestyle="--", alpha=0.4)
     ax.legend(fontsize=9)
 
@@ -302,7 +334,7 @@ def plot_directional_yield_comparison(df1, df2,
     plot_directional_yield(df2, farm_name=names[1],
                            n_sectors=n_sectors, ax=axes[1], color=C2)
     fig.suptitle("Energy Yield Contribution by Wind Direction Sector (No Wake)",
-                 fontsize=13)
+                 fontsize=13, fontweight="bold")
     plt.tight_layout()
     plt.show()
 
@@ -378,16 +410,16 @@ def plot_seasonality(df: pd.DataFrame,
                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
     ax_month.bar(month_names, [monthly.get(m, 0) for m in range(1, 13)],
                  color=color, edgecolor="white", alpha=0.85)
-    ax_month.set_ylabel("Energy yield [GWh]", fontsize=10)
-    ax_month.set_title(f"Monthly Energy Yield\n{farm_name}", fontsize=12)
+    ax_month.set_ylabel("Energy yield [GWh]", fontsize=10, fontweight="bold")
+    ax_month.set_title(f"Monthly Energy Yield\n{farm_name}", fontsize=12, fontweight="bold")
     ax_month.grid(axis="y", linestyle="--", alpha=0.4)
     ax_month.tick_params(axis="x", rotation=30)
 
     s_colors = [SEASON_COLORS[s] for s in season_order]
     ax_season.bar(season_order, [seasonal.get(s, 0) for s in season_order],
                   color=s_colors, edgecolor="white", alpha=0.85)
-    ax_season.set_ylabel("Energy yield [GWh]", fontsize=10)
-    ax_season.set_title(f"Seasonal Energy Yield\n{farm_name}", fontsize=12)
+    ax_season.set_ylabel("Energy yield [GWh]", fontsize=10, fontweight="bold")
+    ax_season.set_title(f"Seasonal Energy Yield\n{farm_name}", fontsize=12, fontweight="bold")
     ax_season.grid(axis="y", linestyle="--", alpha=0.4)
 
     if standalone:
@@ -405,7 +437,7 @@ def plot_seasonality_comparison(df1, df2, names=("N-10.1", "N-10.2")):
     plot_seasonality(df2, farm_name=names[1], color=C2,
                      ax_month=axes[1, 0], ax_season=axes[1, 1])
     fig.suptitle("Seasonality Analysis – No Wake Scenario (2006 ERA5)",
-                 fontsize=14, y=1.01)
+                 fontsize=14, y=1.01, fontweight="bold")
     plt.tight_layout()
     plt.show()
 
@@ -446,9 +478,9 @@ def plot_diurnal(df: pd.DataFrame,
                     hourly_mean - hourly_std,
                     hourly_mean + hourly_std,
                     color=color, alpha=0.2, label="±1 std dev")
-    ax.set_xlabel("Hour of day (UTC)", fontsize=10)
-    ax.set_ylabel("Farm power [MW]", fontsize=10)
-    ax.set_title(f"Diurnal Variation of Farm Power\n{farm_name}", fontsize=12)
+    ax.set_xlabel("Hour of day (UTC)", fontsize=10, fontweight="bold")
+    ax.set_ylabel("Farm power [MW]", fontsize=10, fontweight="bold")
+    ax.set_title(f"Diurnal Variation of Farm Power\n{farm_name}", fontsize=12, fontweight="bold")
     ax.set_xticks(range(0, 24, 2))
     ax.grid(linestyle="--", alpha=0.4)
     ax.legend(fontsize=9)
@@ -477,9 +509,9 @@ def plot_diurnal_comparison(df1, df2, names=("N-10.1", "N-10.2")):
         ax.fill_between(hmean.index, hmean - hstd, hmean + hstd,
                         color=color, alpha=0.15)
 
-    ax.set_xlabel("Hour of day (UTC)", fontsize=10)
-    ax.set_ylabel("Farm power [MW]", fontsize=10)
-    ax.set_title("Diurnal Variation – No Wake Scenario (2006 ERA5)", fontsize=12)
+    ax.set_xlabel("Hour of day (UTC)", fontsize=10, fontweight="bold")
+    ax.set_ylabel("Farm power [MW]", fontsize=10, fontweight="bold")
+    ax.set_title("Diurnal Variation – No Wake Scenario (2006 ERA5)", fontsize=12, fontweight="bold")
     ax.set_xticks(range(0, 24, 2))
     ax.grid(linestyle="--", alpha=0.4)
     ax.legend(fontsize=10)
@@ -533,9 +565,9 @@ def plot_full_dashboard(df: pd.DataFrame,
     hours     = np.arange(len(p_sorted))
     ax_pdc.plot(hours, p_sorted, color=color, lw=1.5)
     ax_pdc.fill_between(hours, 0, p_sorted, color=color, alpha=0.15)
-    ax_pdc.set_xlabel("Hours [h]", fontsize=9)
-    ax_pdc.set_ylabel("Farm power [MW]", fontsize=9)
-    ax_pdc.set_title("Power Duration Curve", fontsize=11)
+    ax_pdc.set_xlabel("Hours [h]", fontsize=10, fontweight="bold")
+    ax_pdc.set_ylabel("Farm power [MW]", fontsize=10, fontweight="bold")
+    ax_pdc.set_title("Power Duration Curve", fontsize=12, fontweight="bold")
     ax_pdc.grid(linestyle="--", alpha=0.4)
 
     fig.suptitle(
